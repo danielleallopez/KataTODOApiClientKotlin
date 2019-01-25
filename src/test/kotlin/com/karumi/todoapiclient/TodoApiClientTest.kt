@@ -1,5 +1,7 @@
 package com.karumi.todoapiclient
 
+import com.google.gson.Gson
+import com.google.gson.stream.JsonReader
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -11,10 +13,16 @@ import todoapiclient.dto.TaskDto
 import todoapiclient.exception.ItemNotFoundError
 import todoapiclient.exception.NetworkError
 import todoapiclient.exception.UnknownApiError
+import java.io.File
+import java.io.FileReader
+import java.lang.reflect.Type
+
 
 class TodoApiClientTest : MockWebServerTest() {
 
     private lateinit var apiClient: TodoApiClient
+
+    private val gson by lazy { Gson() }
 
     @Before
     override fun setUp() {
@@ -160,12 +168,90 @@ class TodoApiClientTest : MockWebServerTest() {
         assertGetRequestSentTo("/todos/$TASK_ID")
     }
 
+    //Task creation
+    @Test
+    fun returnsUpdatedTaskWithCode200WhenSendingValidTaskData() {
+        enqueueMockResponse(200, "addTaskResponse.json")
+
+        val taskToCreate = readJsonFile<TaskDto>("addTaskRequest.json", TaskDto::class.java)
+        val response = apiClient.addTask(taskToCreate)
+
+        val updatedTask = readJsonFile<TaskDto>("addTaskResponse.json", TaskDto::class.java)
+        assertEquals("Updated task when proper data sent", Either.Right(updatedTask), response)
+    }
+
+    @Test
+    fun returnsErrorWhenSendingInvalidTaskData() {
+        enqueueMockResponse(400)
+
+        val taskToCreate = readJsonFile<TaskDto>("addTaskRequest_malformed.json", TaskDto::class.java)
+        val error = apiClient.addTask(taskToCreate)
+
+        assertEquals(Either.Left(UnknownApiError(400)), error)
+    }
+
+    @Test
+    fun returnsErrorWhenSendingEmptyTaskData() {
+        enqueueMockResponse(400)
+
+        val taskToCreate = readJsonFile<TaskDto>("addTaskRequest_empty.json", TaskDto::class.java)
+        val error = apiClient.addTask(taskToCreate)
+
+        assertEquals(Either.Left(UnknownApiError(400)), error)
+    }
+
+    @Test
+    fun sendsProperAcceptHeaderWhenCreatingTask() {
+        enqueueMockResponse(200, "addTaskResponse.json")
+
+        val taskToCreate = readJsonFile<TaskDto>("addTaskRequest.json", TaskDto::class.java)
+        apiClient.addTask(taskToCreate)
+
+        assertRequestContainsHeader("Accept", "application/json")
+    }
+
+    @Test
+    fun sendsProperContentTypeHeaderWhenCreatingTask() {
+        enqueueMockResponse(200, "addTaskResponse.json")
+
+        val taskToCreate = readJsonFile<TaskDto>("addTaskRequest.json", TaskDto::class.java)
+        apiClient.addTask(taskToCreate)
+
+        assertRequestContainsHeader("Content-type", "application/json; charset=UTF-8")
+    }
+
+    @Test
+    fun usesMethodPostWhenCreatingTask() {
+        enqueueMockResponse(200, "addTaskResponse.json")
+
+        val taskToCreate = readJsonFile<TaskDto>("addTaskRequest.json", TaskDto::class.java)
+        apiClient.addTask(taskToCreate)
+
+        assertPostRequestSentTo("/todos")
+    }
+
+    @Test
+    fun sendsProperBodyWhenCreatingTaskWithValidData() {
+        enqueueMockResponse(200, "addTaskResponse.json")
+
+        val taskToCreate = readJsonFile<TaskDto>("addTaskRequest.json", TaskDto::class.java)
+        apiClient.addTask(taskToCreate)
+
+        assertRequestBodyEquals("addTaskRequest.json")
+    }
+
     private fun assertTaskContainsExpectedValues(task: TaskDto?) {
         assertTrue(task != null)
         assertEquals(task?.id, "1")
         assertEquals(task?.userId, "1")
         assertEquals(task?.title, "delectus aut autem")
         assertFalse(task!!.isFinished)
+    }
+
+    private inline fun <reified T> readJsonFile(fileName: String, type: Type): T {
+        val file = File(javaClass.getResource("/$fileName").file)
+        val reader = JsonReader(FileReader(file))
+        return gson.fromJson(reader, type)
     }
 }
 
